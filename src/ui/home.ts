@@ -1,7 +1,7 @@
 // The start page: new images from size presets (Minecraft textures, sprites, icons, photos), recent
 // files, and the file actions. Shown when Pixelline starts and from the logo.
 import * as L from 'lucide';
-import type { RecentFile } from '../shared/api';
+import type { RecentFile, RecoveredImage } from '../shared/api';
 import type { App } from './app';
 import { createImage, openNewImage, PRESET_GROUPS, type SizePreset } from './dialogs/newImage';
 import { h, icon } from './dom';
@@ -42,6 +42,16 @@ function folderOf(p: string): string {
   return '…\\' + parts.slice(-2).join('\\');
 }
 
+/** Short tips on the start page (one set is shown each time). */
+const TIPS: { icon: L.IconNode; title: string; text: string }[] = [
+  { icon: L.Grid2x2, title: 'Seamless textures', text: 'Press Shift+T to see the image tiled around itself. Painting wraps around the edges, so block textures never show a seam.' },
+  { icon: L.Blend, title: 'Shade in one stroke', text: 'Set the pencil’s Ink to Shade: each pixel you paint gets a darker shade of itself (right-click for lighter), hue-shifted like hand-made pixel art.' },
+  { icon: L.Film, title: 'Animated textures', text: 'Open the Animation panel to play a strip of frames, use onion skin, and save the .png.mcmeta automatically with the PNG.' },
+  { icon: L.FolderCog, title: 'A whole folder at once', text: 'File → Batch process resizes, upscales, recolours or converts every image in a folder, subfolders too (a whole resource pack).' },
+  { icon: L.Search, title: 'Find any command', text: 'Press Ctrl+K and type what you want: "blur", "outline", "palette", "export"…' },
+  { icon: L.Pipette, title: 'Colours from anywhere', text: 'The pipette in the Color panel picks a colour from anywhere on screen, even other apps.' },
+];
+
 function greeting(): string {
   const hr = new Date().getHours();
   return hr < 5 ? 'Good evening' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
@@ -53,6 +63,7 @@ export class HomeView {
   private nav: HTMLElement;
   private section: HomeSection;
   private recent: RecentFile[] = [];
+  private recovered: RecoveredImage[] = [];
   private filter = '';
   private onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape' && !document.querySelector('.modal-backdrop, .popover')) {
@@ -94,6 +105,7 @@ export class HomeView {
 
   private async loadRecent(): Promise<void> {
     this.recent = await platform.recentFiles();
+    this.recovered = await platform.recovery.list();
     this.render();
   }
 
@@ -143,10 +155,50 @@ export class HomeView {
       const p = PRESET_GROUPS.find((x) => x.name === g)?.presets.find((x) => x.name === name);
       if (p) strip.append(this.presetCard(p));
     }
+    if (this.recovered.length) this.main.append(this.recoveryBlock());
     this.main.append(
       h('div', { class: 'home-row-head' }, h('h2', null, 'Start something new'), h('button', { class: 'btn text home-link', onclick: () => this.show('new') }, 'More sizes', icon(L.ArrowRight, 14))),
       strip,
       this.recentBlock(false),
+      this.tipsBlock(),
+    );
+  }
+
+  /** Images with unsaved changes from a session that ended unexpectedly. */
+  private recoveryBlock(): HTMLElement {
+    const list = h('div', { class: 'recover-list' });
+    for (const r of this.recovered) {
+      const when = relativeTime(r.savedAt);
+      list.append(
+        h(
+          'div',
+          { class: 'recover-row' },
+          icon(L.LifeBuoy, 18),
+          h('span', { class: 'name' }, r.name, h('span', { class: 'hint' }, ` · ${r.width} × ${r.height} · ${when}`)),
+          h('button', { class: 'btn primary small', onclick: () => {
+            this.close();
+            void this.app.restoreRecovered(r.id, r.name, r.filePath);
+          } }, 'Recover'),
+          h('button', { class: 'btn outline small', onclick: async () => {
+            await platform.recovery.remove(r.id);
+            this.recovered = this.recovered.filter((x) => x !== r);
+            this.render();
+          } }, 'Discard'),
+        ),
+      );
+    }
+    return h('section', { class: 'home-recover' }, h('h2', null, 'Unsaved work from last time'), h('p', { class: 'hint' }, 'Pixelline closed before these were saved. Recover them to keep working, or discard them.'), list);
+  }
+
+  private tipsBlock(): HTMLElement {
+    // Three tips, a different set each day
+    const start = Math.floor(Date.now() / 86_400_000) % TIPS.length;
+    const tips = [0, 1, 2].map((i) => TIPS[(start + i) % TIPS.length]);
+    return h(
+      'section',
+      { class: 'home-tips' },
+      h('h2', null, 'Tips'),
+      h('div', { class: 'tips-grid' }, ...tips.map((t) => h('div', { class: 'tip-card' }, h('div', { class: 'tip-icon' }, icon(t.icon, 18)), h('div', null, h('div', { class: 'tip-title' }, t.title), h('div', { class: 'tip-text' }, t.text))))),
     );
   }
 

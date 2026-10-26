@@ -5,6 +5,7 @@ import { FILTERS } from '../core/filters';
 import type { App } from './app';
 import { h, icon, kbd } from './dom';
 import { openPalette } from './palette';
+import { suiteButton } from './suiteMenu';
 import { isDesktop, platform } from './platform';
 import { showMenu, tooltip, type MenuItem, type Popover } from './widgets';
 
@@ -21,7 +22,7 @@ export class TitleBar {
   constructor(private app: App) {
     this.el = h('header', { class: 'titlebar' });
     this.menus = [
-      { label: 'File', spec: () => ['file.new', 'file.newFromClipboard', 'file.open', 'file.place', '-', 'file.save', 'file.saveAs', 'file.export', 'file.revert', '-', 'file.close', 'file.closeAll', '-', 'file.showInFolder', 'file.newWindow', 'file.home', '-', 'app.settings'] },
+      { label: 'File', spec: () => ['file.new', 'file.newFromClipboard', 'file.open', 'file.place', '-', 'file.save', 'file.saveAs', 'file.export', 'file.exportTiles', 'file.revert', '-', 'file.batch', '-', 'file.close', 'file.closeAll', '-', 'file.showInFolder', 'file.newWindow', 'file.home', '-', 'app.settings'] },
       {
         label: 'Edit',
         spec: () => [
@@ -108,7 +109,7 @@ export class TitleBar {
       },
       {
         label: 'View',
-        spec: () => ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', '-', 'view.pixelGrid', 'view.tileGrid', 'view.tileMode', '-', 'view.mirrorX', 'view.mirrorY', '-', 'view.panels', 'view.theme', 'view.fullscreen'],
+        spec: () => ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.actual', '-', 'view.pixelGrid', 'view.tileGrid', 'view.snap', 'view.tileMode', '-', 'view.mirrorX', 'view.mirrorY', '-', 'view.panels', 'view.theme', 'view.fullscreen'],
       },
       { label: 'Help', spec: () => ['help.palette', 'help.shortcuts', '-', 'help.whatsNew', 'help.updates', '-', 'help.about'] },
     ];
@@ -144,6 +145,7 @@ export class TitleBar {
     tooltip(settings, 'Settings', 'Ctrl+,');
     this.el.replaceChildren(
       ...[
+        suiteButton(),
         brand,
         bar,
         h('div', { class: 'quick-access' }, this.undoBtn, this.redoBtn),

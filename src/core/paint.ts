@@ -48,8 +48,11 @@ export interface StrokeOptions {
   mirrorY?: number;
   /** For 1-pixel lines: removes the extra pixel in L-shaped corners. */
   pixelPerfect?: boolean;
-  /** Paints each pixel with a colour from elsewhere instead of `color` (the clone stamp). */
-  colorAt?: (x: number, y: number) => RGBA | null;
+  /**
+   * Paints each pixel with its own colour instead of `color`: from elsewhere (the clone stamp),
+   * from a pattern (dithering) or from what's under it (shading). null leaves the pixel alone.
+   */
+  colorAt?: (x: number, y: number, under: RGBA) => RGBA | null;
 }
 
 const T = 64;
@@ -231,7 +234,7 @@ export class Stroke {
           continue;
         }
         if (colorAt) {
-          const c = colorAt(px, py);
+          const c = colorAt(px, py, { r: orig[i], g: orig[i + 1], b: orig[i + 2], a: orig[i + 3] });
           if (!c) continue;
           ({ r: cr, g: cg, b: cb, a: ca } = c);
         }

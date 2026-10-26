@@ -9,7 +9,9 @@ import { parsePalette, serializePalette, type Palette, type PaletteFormat } from
 import { makePalette, uniqueColors } from '../../core/quantize';
 import type { App } from '../app';
 import { h, icon } from '../dom';
-import { allPalettes, currentPalette, deleteUserPalette, isBuiltin, saveUserPalette } from '../paletteStore';
+import { makeRamp } from '../../core/ink';
+import { debounce } from '../dom';
+import { allPalettes, currentPalette, deleteUserPalette, IMAGE_PALETTE, isBuiltin, saveUserPalette } from '../paletteStore';
 import { platform } from '../platform';
 import { promptDialog, showMenu, toast, tooltip } from '../widgets';
 import { swatch } from './color';
@@ -39,12 +41,43 @@ export class SwatchesPanel {
     const app = this.app;
     const pals = allPalettes(app);
     const cur = currentPalette(app);
-    this.select.replaceChildren(...pals.map((p) => h('option', { value: p.name }, `${p.name} (${p.colors.length})`)));
+    const image = cur.name === IMAGE_PALETTE;
+    this.select.replaceChildren(
+      h('option', { value: IMAGE_PALETTE }, image ? `${IMAGE_PALETTE} (${cur.colors.length})` : IMAGE_PALETTE),
+      h('option', { disabled: true }, '──────────'),
+      ...pals.map((p) => h('option', { value: p.name }, `${p.name} (${p.colors.length})`)),
+    );
     this.select.value = cur.name;
     this.grid.replaceChildren(
       ...cur.colors.map((c, i) => swatch(app, toHex(c), (e) => this.swatchMenu(c, i, { left: e.clientX, top: e.clientY, right: e.clientX, bottom: e.clientY }))),
     );
-    if (!cur.colors.length) this.grid.append(h('span', { class: 'hint' }, 'Empty palette. Press + to add the primary colour.'));
+    if (!cur.colors.length)
+      this.grid.append(
+        h(
+          'span',
+          { class: 'hint' },
+          image ? (app.doc ? 'This image has more than 256 colours (a photo?), so they aren’t listed.' : 'Open an image to see its colours.') : 'Empty palette. Press + to add the primary colour.',
+        ),
+      );
+  }
+
+  /** The image changed: "Colours in this image" catches up (a moment later, not on every stroke). */
+  imageChanged = debounce(() => {
+    if (this.app.prefs.palette === IMAGE_PALETTE) this.render();
+  }, 400);
+
+  /** Adds a shading ramp of a colour (dark to light) to the palette. */
+  addRamp(c: RGBA): void {
+    const p = this.editable();
+    const have = new Set(p.colors.map((x) => toHex(x)));
+    const ramp = makeRamp(c, 7).filter((x) => !have.has(toHex(x)));
+    if (!ramp.length) {
+      toast('Those shades are already in the palette.');
+      return;
+    }
+    saveUserPalette(this.app, { name: p.name, colors: [...p.colors, ...ramp] });
+    this.render();
+    toast(`Added ${ramp.length} shades to "${p.name}".`);
   }
 
   /** Makes the current palette editable: a built-in one is copied to your palettes first. */
@@ -124,6 +157,7 @@ export class SwatchesPanel {
           run: () => void this.fromImage(),
         },
         { label: 'New empty palette', icon: L.Plus, run: () => void this.newEmpty() },
+        { label: 'Add shades of the primary colour', icon: L.Blend, run: () => this.addRamp(app.colors.fg) },
         { separator: true },
         { label: 'Import palette…', icon: L.Upload, hint: '.gpl .pal .hex', run: () => void this.importFile() },
         {

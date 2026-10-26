@@ -238,6 +238,19 @@ export interface DocMeta {
   grid?: { size: number; show: boolean };
   /** Dots per inch (for printing; doesn't change the pixels). */
   dpi?: number;
+  /** An animated texture: frames stacked top to bottom (Minecraft's .png.mcmeta). */
+  animation?: AnimationMeta;
+}
+
+export interface AnimationMeta {
+  /** Height of one frame in pixels (Minecraft: the image width). */
+  frameHeight: number;
+  /** How long each frame shows, in game ticks (20 per second). */
+  frametime: number;
+  /** Blend smoothly between frames (Minecraft's "interpolate"). */
+  interpolate: boolean;
+  /** Settings from an .mcmeta file that Pixelline doesn't edit (frame order…), written back as they were. */
+  extra?: Record<string, unknown>;
 }
 
 export class ImageDoc {

@@ -34,6 +34,16 @@ export interface PixellineApi {
   pickFolder(): Promise<string | null>;
   /** Writes a file inside a folder picked with pickFolder (subfolders are created). */
   saveInFolder(folder: string, relative: string, data: Uint8Array): Promise<SaveResult>;
+  /** The images (or with `all`, every file) in a folder picked with pickFolder, paths relative to it. */
+  listFolder(folder: string, recursive: boolean, all?: boolean): Promise<{ path: string; size: number }[]>;
+  readInFolder(folder: string, relative: string): Promise<Uint8Array | null>;
+  /** A file next to an opened or saved image, like its ".mcmeta" (null when there's none). */
+  readSidecar(path: string, suffix: string): Promise<Uint8Array | null>;
+  saveSidecar(path: string, suffix: string, data: Uint8Array): Promise<SaveResult>;
+  /** Copies of unsaved images, kept in case Pixelline closes unexpectedly. */
+  recovery: RecoveryApi;
+  /** The other apps of the suite (Baseline, Gridline). */
+  suite: SuiteApi;
   recentFiles(): Promise<RecentFile[]>;
   clearRecentFiles(): Promise<void>;
   removeRecentFile(path: string): Promise<void>;
@@ -53,11 +63,47 @@ export interface PixellineApi {
   onRequestClose(cb: () => void): void;
   /** Files opened from outside (Explorer, a second launch) for this window to open in tabs. */
   onOpenPaths(cb: (paths: string[]) => void): void;
+  /** A new image asked for from outside (Baseline): { new: '16x16', bg?, name? }. */
+  onNewImage(cb: (opts: Record<string, string>) => void): void;
   toggleDevTools(): void;
   appVersion(): Promise<string>;
   /** Scales the whole window (1 = 100%). */
   setZoomFactor(factor: number): void;
   updates: UpdatesApi;
+}
+
+export interface RecoveredImage {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  filePath: string | null;
+  savedAt: number;
+}
+
+export interface RecoveryApi {
+  save(id: string, data: Uint8Array, info: Omit<RecoveredImage, 'id' | 'savedAt'>): Promise<void>;
+  list(): Promise<RecoveredImage[]>;
+  read(id: string): Promise<Uint8Array | null>;
+  remove(id: string): Promise<void>;
+}
+
+export type SuiteAppId = 'baseline' | 'gridline' | 'pixelline';
+
+export interface SuiteApp {
+  id: SuiteAppId;
+  name: string;
+  description: string;
+  installed: boolean;
+  exe: string | null;
+  version: string | null;
+  download: string;
+}
+
+export interface SuiteApi {
+  apps(): Promise<SuiteApp[]>;
+  /** Starts an app, optionally with files to open or options like "--new=16x16". */
+  launch(id: SuiteAppId, args?: string[]): Promise<boolean>;
 }
 
 export interface UpdateCheckOptions {

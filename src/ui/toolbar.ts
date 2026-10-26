@@ -15,7 +15,7 @@ export class Toolbar {
   private buttons = new Map<string, HTMLButtonElement>();
   private fg: HTMLButtonElement;
   private bg: HTMLButtonElement;
-  private toggles: { key: 'mirrorX' | 'mirrorY' | 'tileMode'; btn: HTMLButtonElement }[] = [];
+  private toggles: { key: 'mirrorX' | 'mirrorY' | 'tileMode' | 'snapToGrid'; btn: HTMLButtonElement }[] = [];
 
   constructor(private app: App) {
     const tools = h('div', { class: 'tb-tools', role: 'toolbar', 'aria-label': 'Tools' });
@@ -41,7 +41,7 @@ export class Toolbar {
     tooltip(reset, 'Default colours (black and white)', 'D');
     const colors = h('div', { class: 'tb-colors' }, this.bg, this.fg, swap, reset);
 
-    const toggle = (key: 'mirrorX' | 'mirrorY' | 'tileMode', ic: L.IconNode, label: string, cmd: string) => {
+    const toggle = (key: 'mirrorX' | 'mirrorY' | 'tileMode' | 'snapToGrid', ic: L.IconNode, label: string, cmd: string) => {
       const b = h('button', { class: 'tb-tool small', 'aria-label': label, onclick: () => app.commands.run(cmd) }, icon(ic, 15)) as HTMLButtonElement;
       tooltip(b, label, app.commands.get(cmd)?.keys?.[0]);
       this.toggles.push({ key, btn: b });
@@ -53,6 +53,7 @@ export class Toolbar {
       toggle('mirrorX', L.FlipHorizontal2, 'Mirror painting left ↔ right', 'view.mirrorX'),
       toggle('mirrorY', L.FlipVertical2, 'Mirror painting top ↕ bottom', 'view.mirrorY'),
       toggle('tileMode', L.Grid2x2, 'Seamless tile preview (painting wraps around the edges)', 'view.tileMode'),
+      toggle('snapToGrid', L.Magnet, 'Snap selections and moves to the tile grid', 'view.snap'),
     );
     this.el = h('aside', { class: 'toolbar' }, tools, h('div', { class: 'spacer' }), helpers, colors);
     this.refresh();

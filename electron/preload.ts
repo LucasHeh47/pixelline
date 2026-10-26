@@ -17,6 +17,20 @@ const api: PixellineApi = {
   saveFile: (p: string, data: Uint8Array) => ipcRenderer.invoke('file:save', p, data),
   pickFolder: () => ipcRenderer.invoke('file:pick-folder'),
   saveInFolder: (folder, relative, data) => ipcRenderer.invoke('file:save-in-folder', folder, relative, data),
+  listFolder: (folder, recursive, all) => ipcRenderer.invoke('folder:list', folder, recursive, !!all),
+  readInFolder: (folder, relative) => ipcRenderer.invoke('folder:read', folder, relative),
+  readSidecar: (p, suffix) => ipcRenderer.invoke('file:read-sidecar', p, suffix),
+  saveSidecar: (p, suffix, data) => ipcRenderer.invoke('file:save-sidecar', p, suffix, data),
+  recovery: {
+    save: (id, data, info) => ipcRenderer.invoke('recovery:save', id, data, info),
+    list: () => ipcRenderer.invoke('recovery:list'),
+    read: (id) => ipcRenderer.invoke('recovery:read', id),
+    remove: (id) => ipcRenderer.invoke('recovery:remove', id),
+  },
+  suite: {
+    apps: () => ipcRenderer.invoke('suite:apps'),
+    launch: (id, args) => ipcRenderer.invoke('suite:launch', id, args ?? []),
+  },
   recentFiles: () => ipcRenderer.invoke('file:recent'),
   clearRecentFiles: () => ipcRenderer.invoke('file:clear-recent'),
   removeRecentFile: (p) => ipcRenderer.invoke('file:remove-recent', p),
@@ -37,6 +51,9 @@ const api: PixellineApi = {
   },
   onOpenPaths: (cb) => {
     ipcRenderer.on('app:open-paths', (_e, paths: string[]) => cb(Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []));
+  },
+  onNewImage: (cb) => {
+    ipcRenderer.on('app:new-image', (_e, opts: Record<string, string>) => cb(opts && typeof opts === 'object' ? opts : {}));
   },
   toggleDevTools: () => ipcRenderer.send('win:devtools'),
   appVersion: () => ipcRenderer.invoke('app:version'),

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { FileKind } from '../src/shared/api';
+import { launchSuiteApp, registerSelf, safeLaunchArgs, suiteApps, type SuiteAppId } from './suite';
 import { setupUpdates } from './updater';
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
@@ -71,7 +72,20 @@ function filesFromArgv(argv: string[]): string[] {
   return argv.slice(1).filter((a) => !a.startsWith('-') && SUPPORTED.test(a) && existsSync(a));
 }
 
-function createWindow(filePath?: string, launch = false): BrowserWindow {
+/** A new image asked for on the command line (Baseline uses this): --new=16x16 --bg=transparent --name=Sword */
+function newImageFromArgv(argv: string[]): Record<string, string> | null {
+  const get = (k: string) => argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
+  const size = get('new');
+  if (!size || !/^\d{1,5}x\d{1,5}$/.test(size)) return null;
+  const out: Record<string, string> = { new: size };
+  const bg = get('bg');
+  if (bg && /^(transparent|white|black)$/.test(bg)) out.bg = bg;
+  const name = get('name');
+  if (name) out.name = name.slice(0, 80);
+  return out;
+}
+
+function createWindow(filePath?: string, launch = false, newImage?: Record<string, string> | null): BrowserWindow {
   const win = new BrowserWindow({
     width: 1480,
     height: 920,
@@ -93,7 +107,7 @@ function createWindow(filePath?: string, launch = false): BrowserWindow {
   });
   const id = win.webContents.id;
   if (filePath) allow(filePath);
-  const query: Record<string, string> | undefined = filePath ? { file: path.resolve(filePath) } : launch ? { launch: '1' } : undefined;
+  const query: Record<string, string> | undefined = filePath ? { file: path.resolve(filePath) } : newImage ? newImage : launch ? { launch: '1' } : undefined;
   if (DEV_URL) win.loadURL(DEV_URL + (query ? `?${new URLSearchParams(query)}` : ''));
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query });
 
@@ -263,6 +277,104 @@ ipcMain.handle('file:save-in-folder', async (_e, folder: string, relative: strin
   return writeAtomic(full, data);
 });
 
+// Files next to an image (an animated texture's .png.mcmeta)
+const SIDECAR = /^\.mcmeta$/;
+ipcMain.handle('file:read-sidecar', async (_e, p: string, suffix: string) => {
+  if (typeof p !== 'string' || typeof suffix !== 'string' || !SIDECAR.test(suffix) || !isAllowed(p)) return null;
+  try {
+    return new Uint8Array(await fs.readFile(path.resolve(p) + suffix));
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle('file:save-sidecar', async (_e, p: string, suffix: string, data: Uint8Array) => {
+  if (typeof p !== 'string' || typeof suffix !== 'string' || !SIDECAR.test(suffix) || !isAllowed(p)) return { ok: false, error: 'Save the image first.' };
+  return writeAtomic(path.resolve(p) + suffix, data);
+});
+
+// Folders picked for batch processing: list their images and read them
+const FOLDER_IMAGES = /\.(png|jpe?g|webp|gif|bmp)$/i;
+const inFolder = (folder: string, relative: string): string | null => {
+  if (typeof folder !== 'string' || typeof relative !== 'string' || !allowedFolders.has(path.resolve(folder).toLowerCase())) return null;
+  const full = path.resolve(folder, relative);
+  return full.toLowerCase().startsWith(path.resolve(folder).toLowerCase() + path.sep) ? full : null;
+};
+ipcMain.handle('folder:list', async (_e, folder: string, recursive: boolean, all: boolean) => {
+  if (typeof folder !== 'string' || !allowedFolders.has(path.resolve(folder).toLowerCase())) return [];
+  const root = path.resolve(folder);
+  const out: { path: string; size: number }[] = [];
+  const walk = async (dir: string, depth: number) => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (out.length >= 5000) return;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory() && recursive && depth < 12) await walk(full, depth + 1);
+      else if (ent.isFile() && (all || FOLDER_IMAGES.test(ent.name))) {
+        const st = await fs.stat(full).catch(() => null);
+        out.push({ path: path.relative(root, full), size: st?.size ?? 0 });
+      }
+    }
+  };
+  await walk(root, 0);
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+});
+ipcMain.handle('folder:read', async (_e, folder: string, relative: string) => {
+  const full = inFolder(folder, relative);
+  if (!full) return null;
+  try {
+    return new Uint8Array(await fs.readFile(full));
+  } catch {
+    return null;
+  }
+});
+
+// Unsaved images kept safe in case Pixelline closes unexpectedly
+const recoveryDir = () => path.join(app.getPath('userData'), 'recovery');
+/** Copies made while Pixelline is running now (only ones from an earlier run need recovering). */
+const recoveringNow = new Set<string>();
+const RECOVERY_ID = /^[a-z0-9-]{1,40}$/;
+ipcMain.handle('recovery:save', async (_e, id: string, data: Uint8Array, info: unknown) => {
+  if (typeof id !== 'string' || !RECOVERY_ID.test(id) || !(data instanceof Uint8Array)) return;
+  recoveringNow.add(id);
+  await fs.mkdir(recoveryDir(), { recursive: true });
+  await writeAtomic(path.join(recoveryDir(), `${id}.ora`), data);
+  await fs.writeFile(path.join(recoveryDir(), `${id}.json`), JSON.stringify({ ...(info as object), savedAt: Date.now() }));
+});
+ipcMain.handle('recovery:list', async () => {
+  const out: Record<string, unknown>[] = [];
+  for (const f of await fs.readdir(recoveryDir()).catch(() => [] as string[])) {
+    if (!f.endsWith('.json') || recoveringNow.has(f.replace(/\.json$/, ''))) continue;
+    try {
+      const info = JSON.parse(await fs.readFile(path.join(recoveryDir(), f), 'utf8')) as Record<string, unknown>;
+      if (existsSync(path.join(recoveryDir(), f.replace(/\.json$/, '.ora')))) out.push({ ...info, id: f.replace(/\.json$/, '') });
+    } catch {
+      // a damaged entry is skipped
+    }
+  }
+  return out;
+});
+ipcMain.handle('recovery:read', async (_e, id: string) => {
+  if (typeof id !== 'string' || !RECOVERY_ID.test(id)) return null;
+  return new Uint8Array(await fs.readFile(path.join(recoveryDir(), `${id}.ora`)).catch(() => Buffer.alloc(0)));
+});
+ipcMain.handle('recovery:remove', async (_e, id: string) => {
+  if (typeof id !== 'string' || !RECOVERY_ID.test(id)) return;
+  await fs.rm(path.join(recoveryDir(), `${id}.ora`), { force: true });
+  await fs.rm(path.join(recoveryDir(), `${id}.json`), { force: true });
+});
+
+// The other apps of the suite
+ipcMain.handle('suite:apps', () => suiteApps());
+ipcMain.handle('suite:launch', async (_e, id: SuiteAppId, args: unknown) => {
+  if (!['baseline', 'gridline', 'pixelline'].includes(id)) return false;
+  return launchSuiteApp(id, safeLaunchArgs(args));
+});
+
 ipcMain.handle('file:recent', async () => {
   const list = await readRecent();
   for (const r of list) allow(r.path);
@@ -369,6 +481,8 @@ if (!app.requestSingleInstanceLock()) {
     if (win.isMinimized()) win.restore();
     win.focus();
     if (files.length) sendPaths(win, files);
+    const fresh = newImageFromArgv(argv);
+    if (fresh) win.webContents.send('app:new-image', fresh);
   });
 
   app.whenReady().then(() => {
@@ -377,7 +491,8 @@ if (!app.requestSingleInstanceLock()) {
     const files = filesFromArgv(process.argv);
     if (process.env.PIXELLINE_OPEN && existsSync(process.env.PIXELLINE_OPEN)) files.push(process.env.PIXELLINE_OPEN);
     if (files.length) openInNewWindow(files);
-    else createWindow(undefined, true);
+    else createWindow(undefined, true, newImageFromArgv(process.argv));
+    void registerSelf('pixelline');
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

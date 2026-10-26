@@ -16,6 +16,9 @@ import { h } from './dom';
 import { DocTabs } from './docTabs';
 import { baseName, encodeImage, extOf, formatFromExt, lossNote, readImage, type SaveFormat } from './files';
 import { HomeView, type HomeSection } from './home';
+import { mcmetaText, parseMcmeta } from '../core/animation';
+import { readOra, writeOra } from '../core/io/ora';
+import { createImage } from './dialogs/newImage';
 import { OptionsBar } from './optionsBar';
 import { Panels } from './panels/panels';
 import { isDesktop, platform } from './platform';
@@ -42,6 +45,10 @@ export interface DocTab {
   off: () => void;
   /** Already told that saving as PNG/JPEG flattens the layers. */
   flattenNoted?: boolean;
+  /** Its copy in the recovery folder (kept while it has unsaved changes). */
+  recoveryId: string;
+  /** The history version last copied there. */
+  recoveredVersion?: number;
 }
 
 export interface Prefs {
@@ -60,10 +67,20 @@ export interface Prefs {
   /** Panels folded closed. */
   collapsed: string[];
   hidePanels: boolean;
+  /** Panels whose default (open or folded) has been applied; newer panels start at their default. */
+  panelsKnown: string[];
+  /** Animation: the previous frame shows faintly over each frame. */
+  onionSkin: boolean;
+  /** Selections and moves snap to the tile grid. */
+  snapToGrid: boolean;
+  /** What the Navigator shows. */
+  navigatorMode?: 'fit' | 'actual' | 'tiled';
   lastNew: { width: number; height: number; background: string };
   recentCommands: string[];
   /** Last settings used in each filter's dialog. */
   filterParams: Record<string, Params>;
+  /** Batch processing choices (dialogs/batch.ts). */
+  batch?: object;
   /** Export dialog choices. */
   exportOpts: { format: SaveFormat; scale: number; quality: number };
 }
@@ -84,6 +101,9 @@ const DEFAULT_PREFS: Prefs = {
   panelWidth: 288,
   collapsed: ['navigator', 'history'],
   hidePanels: false,
+  panelsKnown: [],
+  onionSkin: true,
+  snapToGrid: false,
   lastNew: { width: 16, height: 16, background: 'transparent' },
   recentCommands: [],
   filterParams: {},
@@ -228,6 +248,7 @@ export class App {
       });
     });
     platform.onOpenPaths((paths) => void this.openPaths(paths));
+    platform.onNewImage((o) => this.newFromOptions(o));
     window.addEventListener('beforeunload', (e) => {
       if (!isDesktop && this.tabs.some((t) => t.doc.dirty)) e.preventDefault();
     });
@@ -235,10 +256,79 @@ export class App {
     this.renderEmpty();
     this.refreshAll();
     // A file opened from Explorer (or a new window for one) arrives as ?file=
-    const file = new URLSearchParams(location.search).get('file');
+    const params = new URLSearchParams(location.search);
+    const file = params.get('file');
     if (file) void this.openPaths([file]);
+    else if (params.get('new')) this.newFromOptions(Object.fromEntries(params));
     else if (this.settings.bool('files.restore')) this.openHome('home');
     void this.updates.startup();
+    this.startRecovery();
+  }
+
+  /** The tile size selections and moves snap to, or null when snapping is off. */
+  snapSize(): number | null {
+    if (!this.prefs.snapToGrid || !this.doc) return null;
+    return Math.max(1, this.doc.meta.grid?.size ?? 16);
+  }
+
+  /** A new image asked for from outside (Baseline): { new: '16x16', bg, name }. */
+  newFromOptions(o: Record<string, string>): void {
+    const m = /^(\d{1,5})x(\d{1,5})$/.exec(o.new ?? '');
+    if (!m) return;
+    const w = Math.max(1, Math.min(16384, +m[1]));
+    const hh = Math.max(1, Math.min(16384, +m[2]));
+    createImage(this, w, hh, ['transparent', 'white', 'black'].includes(o.bg) ? o.bg : 'transparent', o.name?.trim() || 'Untitled');
+  }
+
+  // ---------- recovery ----------
+
+  private recoveryTimer: number | undefined;
+
+  /** Every few minutes, images with unsaved changes are copied somewhere safe. */
+  startRecovery(): void {
+    clearInterval(this.recoveryTimer);
+    const minutes = this.settings.num('files.recoveryMinutes');
+    if (!isDesktop || !minutes) return;
+    this.recoveryTimer = window.setInterval(() => void this.saveRecovery(), minutes * 60_000);
+  }
+
+  private async saveRecovery(): Promise<void> {
+    for (const t of this.tabs) {
+      const d = t.doc;
+      if (!d.dirty || t.recoveredVersion === d.history.version) continue;
+      try {
+        const bytes = await writeOra(d);
+        await platform.recovery.save(t.recoveryId, bytes, { name: d.name, width: d.width, height: d.height, filePath: d.filePath });
+        t.recoveredVersion = d.history.version;
+      } catch {
+        // a failed copy is tried again next time
+      }
+    }
+  }
+
+  /** The image was saved, closed or thrown away: its recovery copy goes. */
+  private dropRecovery(t: DocTab): void {
+    if (t.recoveredVersion === undefined) return;
+    t.recoveredVersion = undefined;
+    void platform.recovery.remove(t.recoveryId);
+  }
+
+  /** Opens a recovered image (from a session that ended unexpectedly) in a new tab. */
+  async restoreRecovered(id: string, name: string, filePath: string | null): Promise<void> {
+    const bytes = await platform.recovery.read(id);
+    if (!bytes?.length) {
+      toast("That copy couldn't be read.", { kind: 'error' });
+      return;
+    }
+    const doc = await readOra(bytes, name);
+    doc.filePath = filePath;
+    doc.fileType = filePath ? extOf(filePath) : 'ora';
+    this.closeHome();
+    this.addDoc(doc);
+    // Recovered work counts as unsaved until it's saved again
+    doc.edit('Recovered', (e) => e.record(() => undefined, () => undefined));
+    await platform.recovery.remove(id);
+    toast(`Recovered "${name}". Save it to keep it.`, { kind: 'success' });
   }
 
   // ---------- state ----------
@@ -250,9 +340,11 @@ export class App {
   private loadPrefs(): Prefs {
     try {
       const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>;
-      return { ...DEFAULT_PREFS, ...raw, lastNew: { ...DEFAULT_PREFS.lastNew, ...raw.lastNew }, exportOpts: { ...DEFAULT_PREFS.exportOpts, ...raw.exportOpts } };
+      const p = { ...DEFAULT_PREFS, ...raw, lastNew: { ...DEFAULT_PREFS.lastNew, ...raw.lastNew }, exportOpts: { ...DEFAULT_PREFS.exportOpts, ...raw.exportOpts } };
+      // Lists are copied so changing them never changes the defaults
+      return { ...p, collapsed: [...p.collapsed], panelsKnown: [...p.panelsKnown], recentColors: [...p.recentColors], userPalettes: [...p.userPalettes], recentCommands: [...p.recentCommands] };
     } catch {
-      return { ...DEFAULT_PREFS };
+      return { ...DEFAULT_PREFS, collapsed: [...DEFAULT_PREFS.collapsed], panelsKnown: [] };
     }
   }
 
@@ -416,7 +508,7 @@ export class App {
   addDoc(doc: ImageDoc): DocTab {
     doc.history.maxSteps = this.settings.num('history.steps');
     doc.history.maxBytes = this.settings.num('history.memory') * 1024 * 1024;
-    const tab: DocTab = { id: ++tabSeq, doc, view: { zoom: 1, panX: 0, panY: 0, fitted: true }, off: () => undefined };
+    const tab: DocTab = { id: ++tabSeq, doc, view: { zoom: 1, panX: 0, panY: 0, fitted: true }, off: () => undefined, recoveryId: `r${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` };
     tab.off = doc.on((e) => this.onDocEvent(tab, e));
     const i = this.tab ? this.tabs.indexOf(this.tab) + 1 : this.tabs.length;
     this.tabs.splice(i, 0, tab);
@@ -454,6 +546,7 @@ export class App {
     if (tab === this.tab) this.commitTool();
     const i = this.tabs.indexOf(tab);
     tab.off();
+    this.dropRecovery(tab);
     this.tabs.splice(i, 1);
     if (tab === this.tab) {
       this.tab = null;
@@ -477,6 +570,7 @@ export class App {
     if (e.type === 'history') {
       this.docTabs.render();
       platform.setDirty(this.tabs.some((t) => t.doc.dirty));
+      if (!tab.doc.dirty) this.dropRecovery(tab);
     }
     if (tab !== this.tab) return;
     switch (e.type) {
@@ -504,6 +598,7 @@ export class App {
         else this.view.invalidate();
         this.panels.layersChanged();
         this.panels.viewChanged();
+        this.panels.sizeChanged();
         this.statusbar.update();
         break;
       case 'history':
@@ -660,6 +755,12 @@ export class App {
           continue;
         }
         doc.filePath = f.path;
+        // An animated texture's timing is in the .png.mcmeta next to it
+        if (f.path && doc.fileType === 'png') {
+          const meta = await platform.readSidecar(f.path, '.mcmeta');
+          const anim = meta ? parseMcmeta(new TextDecoder().decode(meta), doc.width) : null;
+          if (anim) doc.meta.animation = anim;
+        }
         this.closeHome();
         this.addDoc(doc);
         if (notes.length) toast(`Opened with changes: ${notes.join(' ')}`, { ms: 9000 });
@@ -715,6 +816,11 @@ export class App {
     doc.filePath = isDesktop ? path : null;
     doc.name = baseName(path.split(/[\\/]/).pop() || doc.name);
     doc.fileType = format;
+    // Animated textures need their .png.mcmeta next to the PNG
+    if (format === 'png' && doc.meta.animation && isDesktop) {
+      const r = await platform.saveSidecar(path, '.mcmeta', new TextEncoder().encode(mcmetaText(doc.meta.animation, doc.width)));
+      if (!r.ok) toast(`The image was saved, but its .mcmeta wasn't: ${r.error ?? 'unknown error'}`, { kind: 'error' });
+    }
     doc.markSaved();
     const note = lossNote(doc, format);
     if (note && this.settings.bool('files.warnFlatten') && !tab.flattenNoted) {
@@ -742,6 +848,7 @@ export class App {
       );
       if (choice === 'cancel') return false;
       if (choice === 'save' && !(await this.save(t))) return false;
+      if (choice === 'discard') this.dropRecovery(t);
     }
     return true;
   }

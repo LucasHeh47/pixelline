@@ -9,6 +9,7 @@ import type { ImageDoc } from '../../core/document';
 import { intersect, isEmpty, union, type Rect } from '../../core/geom';
 import type { Layer } from '../../core/layer';
 import type { App } from '../app';
+import { openCanvasMenu } from '../canvasMenu';
 
 export interface ViewState {
   zoom: number;
@@ -53,6 +54,9 @@ interface LayerCanvas {
   h: number;
   dirty: Rect | null;
 }
+
+/** Tools whose right button opens the canvas menu (painting tools use it for the second colour). */
+const MENU_TOOLS = new Set(['move', 'marquee', 'lasso', 'wand', 'crop', 'text', 'hand']);
 
 export const ZOOMS = [0.01, 0.02, 0.03, 0.05, 0.0833, 0.125, 0.1667, 0.25, 0.3333, 0.5, 0.6667, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 96, 128];
 
@@ -436,6 +440,7 @@ export class CanvasView {
     ctx.strokeStyle = this.app.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 1;
     ctx.strokeRect(Math.round(panX) - 0.5, Math.round(panY) - 0.5, Math.round(W) + 1, Math.round(H) + 1);
+    this.drawFrames(d);
     this.drawGrids(d);
     this.drawSymmetry(d);
     this.drawAnts();
@@ -449,6 +454,50 @@ export class CanvasView {
     const b = this.toImage(this.width, this.height);
     const d = this.doc!;
     return intersect({ x: Math.floor(a.x), y: Math.floor(a.y), w: Math.ceil(b.x) - Math.floor(a.x), h: Math.ceil(b.y) - Math.floor(a.y) }, d.bounds);
+  }
+
+  /** Animated textures: lines between the frames, their numbers, and onion skin on the current frame. */
+  private drawFrames(d: ImageDoc): void {
+    const anim = d.meta.animation;
+    if (!anim || anim.frameHeight <= 0) return;
+    const ctx = this.ctx;
+    const { zoom, panX, panY } = this.view;
+    const fh = anim.frameHeight;
+    const count = Math.max(1, Math.floor(d.height / fh));
+    const W = d.width * zoom;
+    const current = this.app.panels.animation.frame;
+    // The frame before the current one, faintly on top of it, to line up movement
+    if (this.app.prefs.onionSkin && count > 1) {
+      const prev = (current - 1 + count) % count;
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.imageSmoothingEnabled = zoom < 1;
+      ctx.drawImage(this.flat, 0, prev * fh, d.width, fh, panX, panY + current * fh * zoom, W, fh * zoom);
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.strokeStyle = 'rgba(169,139,255,0.85)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    for (let i = 1; i < count; i++) {
+      const y = Math.round(panY + i * fh * zoom) + 0.5;
+      ctx.moveTo(panX, y);
+      ctx.lineTo(panX + W, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Frame numbers beside the image; the current frame's is highlighted
+    ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i < count; i++) {
+      const y = panY + i * fh * zoom + 3;
+      if (y < -20 || y > this.height) continue;
+      ctx.fillStyle = i === current ? '#a98bff' : this.app.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
+      ctx.fillText(String(i + 1), panX - 6, y);
+    }
+    ctx.restore();
   }
 
   private drawGrids(d: ImageDoc): void {
@@ -627,10 +676,18 @@ export class CanvasView {
     }
     if (e.button !== 0 && e.button !== 2) return;
     e.preventDefault();
+    // Tools that don't use the right button get a menu there instead
+    if (e.button === 2 && MENU_TOOLS.has(this.app.tools.current.id)) {
+      openCanvasMenu(this.app, e.clientX, e.clientY);
+      return;
+    }
+    const info = this.info(e);
+    // In an animation, clicking a frame makes it the current one (for onion skin)
+    if (this.doc.meta.animation) this.app.panels.animation.pointerAt(info.y);
     this.pointerDown = true;
     this.el.setPointerCapture(e.pointerId);
     try {
-      this.app.tools.current.down?.(this.info(e));
+      this.app.tools.current.down?.(info);
     } catch (err) {
       this.app.error(err);
     }

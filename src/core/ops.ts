@@ -291,7 +291,8 @@ function snapshot(doc: ImageDoc): () => void {
   };
 }
 
-function bigChange(doc: ImageDoc, e: Edit, change: () => void): void {
+/** Runs a change to the image size and layer pixels as one undoable step (keeps the whole state). */
+export function bigChange(doc: ImageDoc, e: Edit, change: () => void): void {
   const before = snapshot(doc);
   change();
   const after = snapshot(doc);

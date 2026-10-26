@@ -82,8 +82,18 @@ export class MarqueeTool extends SelectTool {
     return this.app.tools.options.get('marquee', { shape: 'rect' as 'rect' | 'ellipse', ratio: 'free' as 'free' | 'square' | 'fixed', fixedW: 16, fixedH: 16 });
   }
 
-  /** Snapped to whole pixels: the corner pixel under the pointer is included. */
+  /** The rectangle dragged, grown to whole tiles when snapping to the tile grid. */
   private rect(p0: Point, p1: Point, square: boolean, centre: boolean) {
+    const r = this.rawRect(p0, p1, square, centre);
+    const n = this.app.snapSize();
+    if (!n) return r;
+    const x0 = Math.floor(r.x / n) * n;
+    const y0 = Math.floor(r.y / n) * n;
+    return { x: x0, y: y0, w: Math.ceil((r.x + r.w) / n) * n - x0, h: Math.ceil((r.y + r.h) / n) * n - y0 };
+  }
+
+  /** Snapped to whole pixels: the corner pixel under the pointer is included. */
+  private rawRect(p0: Point, p1: Point, square: boolean, centre: boolean) {
     const o = this.o();
     let x0 = Math.floor(p0.x);
     let y0 = Math.floor(p0.y);
@@ -125,8 +135,9 @@ export class MarqueeTool extends SelectTool {
   move(p: PointerInfo): void {
     const doc = this.app.doc!;
     if (this.moving) {
-      const dx = Math.floor(p.x) - this.moving.from.x;
-      const dy = Math.floor(p.y) - this.moving.from.y;
+      const n = this.app.snapSize() ?? 1;
+      const dx = Math.round((Math.floor(p.x) - this.moving.from.x) / n) * n;
+      const dy = Math.round((Math.floor(p.y) - this.moving.from.y) / n) * n;
       doc.selection = shiftMask(this.moving.mask, dx, dy);
       this.app.view.selectionChanged();
       return;

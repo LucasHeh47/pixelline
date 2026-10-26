@@ -3,15 +3,36 @@
 // art editors). Shift+click draws a straight line from the last point; Alt picks a colour.
 import * as L from 'lucide';
 import { flatten } from '../../core/blend';
-import type { RGBA } from '../../core/color';
+import { pack, type RGBA } from '../../core/color';
 import type { Edit } from '../../core/document';
+import { DITHER_PATTERNS, ditherOn, hueShift, paletteShade, type DitherPattern } from '../../core/ink';
 import type { Raster } from '../../core/raster';
-import { Stroke, type BrushSettings, type StrokeMode } from '../../core/paint';
+import { Stroke, type BrushSettings, type StrokeMode, type StrokeOptions } from '../../core/paint';
 import type { App } from '../app';
 import type { PointerInfo } from '../canvas/CanvasView';
 import { dropdown, segmented, sep, slider, toggle } from '../controls';
+import { currentPalette } from '../paletteStore';
 import { toast } from '../widgets';
 import type { BrushOutline, Tool } from './tool';
+
+/**
+ * How a painting tool puts colour down: normally, as shading (each pixel becomes a darker or
+ * lighter shade of itself) or as a dither pattern.
+ */
+export type InkKind = 'normal' | 'shade' | 'dither';
+
+export interface InkOptions {
+  ink: InkKind;
+  /** What the left button does when shading (the right button does the opposite). */
+  shade: 'darker' | 'lighter';
+  /** Shade by shifting the colour, or by stepping along the Swatches palette. */
+  shadeWith: 'hue' | 'palette';
+  pattern: DitherPattern;
+  /** Dither with both colours (the other one fills the gaps). */
+  both: boolean;
+}
+
+export const INK_DEFAULTS: InkOptions = { ink: 'normal', shade: 'darker', shadeWith: 'hue', pattern: 'checker', both: false };
 
 /** Where the last stroke ended, per document (for Shift+click lines). */
 const lastPoint = new WeakMap<object, { x: number; y: number }>();
@@ -40,8 +61,85 @@ export abstract class PaintTool implements Tool {
   protected smoothing(): number {
     return 0;
   }
-  protected colorAt(): ((x: number, y: number) => RGBA | null) | undefined {
-    return undefined;
+  /** The tool's ink settings (pencil and brush have them). */
+  protected inkOptions(): InkOptions | null {
+    return null;
+  }
+
+  protected colorAt(p: PointerInfo): StrokeOptions['colorAt'] {
+    const ink = this.inkOptions();
+    if (!ink || ink.ink === 'normal') return undefined;
+    const secondary = p.button === 2;
+    if (ink.ink === 'shade') {
+      const dir: 1 | -1 = (ink.shade === 'darker') !== secondary ? -1 : 1;
+      const palette = ink.shadeWith === 'palette' ? currentPalette(this.app).colors : null;
+      const cache = new Map<number, RGBA | null>();
+      return (_x, _y, under) => {
+        if (!under.a) return null;
+        const key = pack(under);
+        let out = cache.get(key);
+        if (out === undefined) {
+          out = palette ? paletteShade(under, dir, palette) : hueShift(under, dir);
+          cache.set(key, out);
+        }
+        return out;
+      };
+    }
+    const { fg, bg } = this.app.colors;
+    const on = secondary ? bg : fg;
+    const off = secondary ? fg : bg;
+    return (x, y) => (ditherOn(ink.pattern, x, y) ? on : ink.both ? off : null);
+  }
+
+  /** Controls for the ink settings (shared by the pencil and the brush). */
+  protected inkControls(): HTMLElement[] {
+    const o = this.inkOptions();
+    if (!o) return [];
+    const set = (v: Partial<InkOptions>) => {
+      this.setOpt(v);
+      this.app.tools.changed();
+    };
+    const out: HTMLElement[] = [
+      dropdown<InkKind>(
+        'Ink',
+        [
+          ['normal', 'Normal'],
+          ['shade', 'Shade'],
+          ['dither', 'Dither'],
+        ],
+        o.ink,
+        (v) => set({ ink: v }),
+        'Normal paints the colour. Shade makes each pixel a darker or lighter shade of itself. Dither paints a pattern.',
+      ),
+    ];
+    if (o.ink === 'shade') {
+      out.push(
+        segmented<'darker' | 'lighter'>(
+          [
+            { value: 'darker', label: 'Darker', title: 'Left button darkens, right button lightens' },
+            { value: 'lighter', label: 'Lighter', title: 'Left button lightens, right button darkens' },
+          ],
+          o.shade,
+          (v) => set({ shade: v }),
+        ),
+        dropdown<'hue' | 'palette'>(
+          null,
+          [
+            ['hue', 'Shift the colour'],
+            ['palette', 'Use the palette'],
+          ],
+          o.shadeWith,
+          (v) => set({ shadeWith: v }),
+          'Shift the colour: shades drift toward blue (darker) or yellow (lighter), like hand-made pixel-art ramps. Use the palette: step to the next colour of the same hue in the Swatches palette.',
+        ),
+      );
+    } else if (o.ink === 'dither') {
+      out.push(
+        dropdown<DitherPattern>('Pattern', Object.entries(DITHER_PATTERNS) as [DitherPattern, string][], o.pattern, (v) => set({ pattern: v })),
+        toggle('Both colours', o.both, (v) => set({ both: v }), 'Fill the gaps with the other colour'),
+      );
+    }
+    return out;
   }
 
   cursor(): string {
@@ -78,7 +176,7 @@ export abstract class PaintTool implements Tool {
       mirrorX: prefs.mirrorX ? doc.width / 2 : undefined,
       mirrorY: prefs.mirrorY ? doc.height / 2 : undefined,
       pixelPerfect: this.pixelPerfect(),
-      colorAt: this.colorAt(),
+      colorAt: this.colorAt(p),
     });
     return true;
   }
@@ -169,7 +267,11 @@ export class PencilTool extends PaintTool {
   protected maxSize = 256;
 
   private o() {
-    return this.opts({ size: 1, shape: 'square' as 'square' | 'round', pixelPerfect: true, opacity: 100 });
+    return this.opts({ size: 1, shape: 'square' as 'square' | 'round', pixelPerfect: true, opacity: 100, ...INK_DEFAULTS });
+  }
+
+  protected inkOptions(): InkOptions {
+    return this.o();
   }
 
   protected brush(): BrushSettings {
@@ -196,6 +298,8 @@ export class PencilTool extends PaintTool {
       slider({ label: 'Opacity', min: 1, max: 100, value: o.opacity, unit: '%', width: 90, onChange: (v) => this.setOpt({ opacity: v }) }),
       sep(),
       toggle('Pixel perfect', o.pixelPerfect, (v) => this.setOpt({ pixelPerfect: v }), 'Removes the extra pixel in L-shaped corners of 1-pixel lines, for clean pixel-art curves'),
+      sep(),
+      ...this.inkControls(),
     ];
   }
 }
@@ -208,7 +312,11 @@ export class BrushTool extends PaintTool {
   hint = 'Soft painting with pen pressure. Right-click paints the secondary colour; Shift+click draws a line.';
 
   private o() {
-    return this.opts({ size: 24, hardness: 60, opacity: 100, flow: 100, smoothing: 20, pressureSize: true, pressureFlow: false });
+    return this.opts({ size: 24, hardness: 60, opacity: 100, flow: 100, smoothing: 20, pressureSize: true, pressureFlow: false, ...INK_DEFAULTS });
+  }
+
+  protected inkOptions(): InkOptions {
+    return this.o();
   }
 
   protected brush(): BrushSettings {
@@ -231,6 +339,8 @@ export class BrushTool extends PaintTool {
       sep(),
       toggle('Pressure: size', o.pressureSize, (v) => this.setOpt({ pressureSize: v }), 'With a pen, pressing harder paints bigger'),
       toggle('flow', o.pressureFlow, (v) => this.setOpt({ pressureFlow: v }), 'With a pen, pressing harder paints stronger'),
+      sep(),
+      ...this.inkControls(),
     ];
   }
 }
@@ -298,7 +408,7 @@ export class CloneTool extends PaintTool {
     return { size: o.size, hardness: o.hardness / 100, opacity: o.opacity / 100, flow: 1, spacing: 0.1, shape: 'round', antialias: true, pressureSize: true };
   }
 
-  protected colorAt(): ((x: number, y: number) => RGBA | null) | undefined {
+  protected colorAt(): StrokeOptions['colorAt'] {
     const snap = this.snapshot;
     const off = this.offset;
     if (!snap || !off) return undefined;

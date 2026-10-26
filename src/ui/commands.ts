@@ -29,6 +29,8 @@ import { Mask } from '../core/selection';
 import type { App } from './app';
 import { openCanvasSize, openImageSize, openTileGrid } from './dialogs/imageSize';
 import { openExport } from './dialogs/export';
+import { openBatch } from './dialogs/batch';
+import { openExportTiles } from './dialogs/exportTiles';
 import { applyFilterNow, openFilter } from './dialogs/filterDialog';
 import { openLayerProps } from './dialogs/layerProps';
 import { openNewImage } from './dialogs/newImage';
@@ -195,6 +197,8 @@ export class Commands {
     a({ id: 'file.save', title: 'Save', category: 'File', icon: L.Save, keys: ['Ctrl+S'], needsDoc: true, run: () => app.save() });
     a({ id: 'file.saveAs', title: 'Save as…', category: 'File', icon: L.SaveAll, keys: ['Ctrl+Shift+S'], needsDoc: true, run: () => app.save(app.tab, true) });
     a({ id: 'file.export', title: 'Export as…', category: 'File', icon: L.Download, keys: ['Ctrl+Alt+S', 'Ctrl+Alt+Shift+W'], needsDoc: true, keywords: 'png jpg webp scale upscale', run: () => openExport(app) });
+    a({ id: 'file.exportTiles', title: 'Export tiles…', category: 'File', icon: L.LayoutGrid, needsDoc: true, keywords: 'split atlas sprite sheet slices frames', run: () => openExportTiles(app) });
+    a({ id: 'file.batch', title: 'Batch process a folder…', category: 'File', icon: L.FolderCog, keywords: 'resource pack bulk convert resize upscale many all images', run: () => openBatch(app) });
     a({
       id: 'file.revert',
       title: 'Revert to saved',
@@ -692,6 +696,22 @@ export class Commands {
       keywords: 'tiling repeat texture wrap pattern',
       checked: () => app.prefs.tileMode,
       run: () => togglePref(app, 'tileMode', 'Seamless tile preview (painting wraps around the edges)'),
+    });
+    a({
+      id: 'view.snap',
+      title: 'Snap to the tile grid',
+      category: 'View',
+      icon: L.Magnet,
+      keys: ['Ctrl+Shift+;'],
+      keywords: 'align atlas tiles sprite sheet',
+      checked: () => app.prefs.snapToGrid,
+      run: () => {
+        app.prefs.snapToGrid = !app.prefs.snapToGrid;
+        app.savePrefs();
+        app.toolbar.refresh();
+        const n = app.doc?.meta.grid?.size ?? 16;
+        app.statusbar.flash(app.prefs.snapToGrid ? `Selections and moves snap to whole ${n}×${n} tiles` : 'Snapping off');
+      },
     });
     a({ id: 'view.mirrorX', title: 'Mirror painting left ↔ right', category: 'View', icon: L.FlipHorizontal2, keywords: 'symmetry', checked: () => app.prefs.mirrorX, run: () => togglePref(app, 'mirrorX', 'Left-right mirror painting') });
     a({ id: 'view.mirrorY', title: 'Mirror painting top ↕ bottom', category: 'View', icon: L.FlipVertical2, keywords: 'symmetry', checked: () => app.prefs.mirrorY, run: () => togglePref(app, 'mirrorY', 'Top-bottom mirror painting') });

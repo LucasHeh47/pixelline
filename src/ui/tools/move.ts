@@ -90,8 +90,10 @@ export class MoveTool implements Tool {
   move(p: PointerInfo): void {
     const d = this.drag;
     if (!d) return;
-    let dx = Math.round(p.x - d.from.x);
-    let dy = Math.round(p.y - d.from.y);
+    // Snapping moves in whole tiles
+    const n = this.app.snapSize() ?? 1;
+    let dx = Math.round((p.x - d.from.x) / n) * n;
+    let dy = Math.round((p.y - d.from.y) / n) * n;
     // Shift keeps it straight
     if (p.shift) {
       if (Math.abs(dx) > Math.abs(dy)) dy = 0;
@@ -155,7 +157,7 @@ export class MoveTool implements Tool {
   onKey(e: KeyboardEvent): boolean {
     const doc = this.app.doc;
     if (!doc || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || e.ctrlKey || e.altKey) return false;
-    const n = e.shiftKey ? 10 : 1;
+    const n = this.app.snapSize() ?? (e.shiftKey ? 10 : 1);
     const dx = e.key === 'ArrowLeft' ? -n : e.key === 'ArrowRight' ? n : 0;
     const dy = e.key === 'ArrowUp' ? -n : e.key === 'ArrowDown' ? n : 0;
     const layer = doc.active;

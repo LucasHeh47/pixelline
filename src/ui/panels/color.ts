@@ -2,6 +2,7 @@
 // the Color panel and the pop-up picker on the tool bar's colour squares.
 import * as L from 'lucide';
 import { cssColor, hsvToRgb, parseHex, rgbToHsv, sameColor, toHex, type RGBA } from '../../core/color';
+import { makeRamp } from '../../core/ink';
 import type { App } from '../app';
 import { h, icon } from '../dom';
 import { Popover, tooltip } from '../widgets';
@@ -198,6 +199,7 @@ export class ColorPanel {
   private fgBtn: HTMLButtonElement;
   private bgBtn: HTMLButtonElement;
   private recent: HTMLElement;
+  private ramp: HTMLElement;
 
   constructor(private app: App) {
     this.picker = new ColorPicker((c, done) => {
@@ -220,8 +222,36 @@ export class ColorPanel {
     const swap = h('button', { class: 'btn icon-only', 'aria-label': 'Swap colours', onclick: () => app.swapColors() }, icon(L.ArrowLeftRight, 14));
     tooltip(swap, 'Swap colours', 'X');
     this.recent = h('div', { class: 'swatch-row recent' });
-    this.el = h('div', { class: 'color-panel' }, h('div', { class: 'cp-targets' }, this.fgBtn, swap, this.bgBtn), this.picker.el, h('div', { class: 'panel-sub' }, 'Recent'), this.recent);
+    this.ramp = h('div', { class: 'swatch-row ramp' });
+    const screen = h('button', { class: 'btn icon-only', 'aria-label': 'Pick a colour from the screen', onclick: () => void this.pickFromScreen() }, icon(L.Pipette, 14));
+    tooltip(screen, 'Pick a colour from anywhere on the screen (another app, a reference picture…)');
+    screen.hidden = !('EyeDropper' in window);
+    const rampHead = h('div', { class: 'panel-sub with-action' }, h('span', null, 'Shades'), h('button', { class: 'btn text small', onclick: () => app.panels.swatches.addRamp(this.app.colors[this.target]) }, icon(L.Plus, 12), 'Add to palette'));
+    tooltip(rampHead.lastElementChild as HTMLElement, 'Adds these shades to the Swatches palette');
+    this.el = h(
+      'div',
+      { class: 'color-panel' },
+      h('div', { class: 'cp-targets' }, this.fgBtn, swap, this.bgBtn, screen),
+      this.picker.el,
+      rampHead,
+      this.ramp,
+      h('div', { class: 'panel-sub' }, 'Recent'),
+      this.recent,
+    );
     this.refresh();
+  }
+
+  /** The system eyedropper: picks a colour anywhere on screen. */
+  private async pickFromScreen(): Promise<void> {
+    const Picker = (window as unknown as { EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper;
+    if (!Picker) return;
+    try {
+      const r = await new Picker().open();
+      const c = parseHex(r.sRGBHex);
+      if (c) this.app.setColor(this.target, c);
+    } catch {
+      // cancelled with Esc
+    }
   }
 
   private refreshTargets(): void {
@@ -235,6 +265,13 @@ export class ColorPanel {
   refresh(): void {
     this.picker.set(this.app.colors[this.target]);
     this.refreshTargets();
+    // Darker and lighter shades of the colour, hue-shifted like pixel-art ramps
+    const ramp = makeRamp(this.app.colors[this.target], 7);
+    this.ramp.replaceChildren(...ramp.map((c, i) => {
+      const el = swatch(this.app, toHex(c));
+      if (i === 3) el.classList.add('current');
+      return el;
+    }));
     const list = this.app.prefs.recentColors;
     this.recent.replaceChildren(
       ...(list.length

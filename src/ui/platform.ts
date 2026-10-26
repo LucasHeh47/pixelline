@@ -46,6 +46,20 @@ const webFallback: Omit<PixellineApi, 'isDesktop'> & { isDesktop: boolean } = {
   },
   pickFolder: async () => null,
   saveInFolder: async () => ({ ok: false, error: 'Folders can only be used in the desktop app.' }),
+  listFolder: async () => [],
+  readInFolder: async () => null,
+  readSidecar: async () => null,
+  saveSidecar: async () => ({ ok: false, error: 'Only in the desktop app.' }),
+  recovery: {
+    save: async () => undefined,
+    list: async () => [],
+    read: async () => null,
+    remove: async () => undefined,
+  },
+  suite: {
+    apps: async () => [],
+    launch: async () => false,
+  },
   recentFiles: async (): Promise<RecentFile[]> => [],
   clearRecentFiles: async () => undefined,
   removeRecentFile: async () => undefined,
@@ -103,6 +117,7 @@ const webFallback: Omit<PixellineApi, 'isDesktop'> & { isDesktop: boolean } = {
   confirmClose: () => undefined,
   onRequestClose: () => undefined,
   onOpenPaths: () => undefined,
+  onNewImage: () => undefined,
   toggleDevTools: () => undefined,
   appVersion: async () => __APP_VERSION__,
 };

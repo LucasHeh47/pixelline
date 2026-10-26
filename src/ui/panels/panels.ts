@@ -4,6 +4,7 @@ import * as L from 'lucide';
 import type { Layer } from '../../core/layer';
 import type { App } from '../app';
 import { h, icon } from '../dom';
+import { AnimationPanel } from './animation';
 import { ColorPanel } from './color';
 import { HistoryPanel } from './history';
 import { LayersPanel } from './layers';
@@ -17,6 +18,7 @@ export class Panels {
   readonly swatches: SwatchesPanel;
   readonly layers: LayersPanel;
   readonly history: HistoryPanel;
+  readonly animation: AnimationPanel;
   private sections = new Map<string, HTMLElement>();
 
   constructor(private app: App) {
@@ -25,6 +27,15 @@ export class Panels {
     this.swatches = new SwatchesPanel(app);
     this.layers = new LayersPanel(app);
     this.history = new HistoryPanel(app);
+    this.animation = new AnimationPanel(app);
+    // Panels added in an update start at their default: open or folded
+    const DEFAULT_FOLDED = ['navigator', 'history', 'animation'];
+    for (const id of ['navigator', 'color', 'swatches', 'layers', 'animation', 'history']) {
+      if (app.prefs.panelsKnown.includes(id)) continue;
+      app.prefs.panelsKnown.push(id);
+      if (DEFAULT_FOLDED.includes(id) && !app.prefs.collapsed.includes(id)) app.prefs.collapsed.push(id);
+    }
+    app.savePrefs();
     const grip = h('div', { class: 'panels-grip', 'aria-hidden': 'true' });
     this.el = h(
       'aside',
@@ -37,6 +48,7 @@ export class Panels {
         this.section('color', 'Color', L.Palette, this.color.el),
         this.section('swatches', 'Swatches', L.SwatchBook, this.swatches.el),
         this.section('layers', 'Layers', L.Layers, this.layers.el, true),
+        this.section('animation', 'Animation', L.Film, this.animation.el),
         this.section('history', 'History', L.History, this.history.el),
       ),
     );
@@ -74,6 +86,7 @@ export class Panels {
       else set.delete(id);
       this.app.prefs.collapsed = [...set];
       this.app.savePrefs();
+      this.animation.visible = this.open('animation');
       if (!now) this.refresh();
     });
     this.sections.set(id, sec);
@@ -90,6 +103,14 @@ export class Panels {
     this.layers.render();
     this.history.render();
     this.navigator.draw();
+    this.animation.visible = this.open('animation');
+    this.animation.render();
+  }
+
+  /** The image size or animation settings changed. */
+  sizeChanged(): void {
+    this.animation.visible = this.open('animation');
+    this.animation.render();
   }
 
   colorsChanged(): void {
@@ -112,5 +133,6 @@ export class Panels {
 
   historyChanged(): void {
     if (this.open('history')) this.history.render();
+    if (this.open('swatches')) this.swatches.imageChanged();
   }
 }
