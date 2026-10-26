@@ -1,0 +1,137 @@
+{
+  "name": "pixelline",
+  "productName": "Pixelline",
+  "version": "0.1.0",
+  "description": "A fast image editor for pixel art, game textures (Minecraft resource packs) and photos, with layers, selections, filters and Photoshop (.psd) files.",
+  "main": "dist-electron/main.js",
+  "private": true,
+  "author": "LucasHeh47",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LucasHeh47/pixelline.git"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && vite build && node scripts/build-electron.mjs",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "dist": "npm run build && electron-builder --win",
+    "dist:dir": "npm run build && electron-builder --win --dir",
+    "release": "npm run build && electron-builder --win --publish never && node scripts/publish-release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "ag-psd": "^33.0.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
+    "fast-png": "^8.0.0",
+    "jszip": "^3.10.2",
+    "lucide": "^1.55.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  },
+  "build": {
+    "appId": "com.pixelline.app",
+    "productName": "Pixelline",
+    "copyright": "Pixelline",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "LucasHeh47",
+        "repo": "pixelline",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Pixelline",
+      "artifactName": "Pixelline-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Pixelline-Portable-${version}.${ext}"
+    },
+    "fileAssociations": [
+      {
+        "ext": "ora",
+        "name": "OpenRaster image",
+        "description": "Layered image (Pixelline, Krita, GIMP)",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      },
+      {
+        "ext": "psd",
+        "name": "Photoshop document",
+        "description": "Photoshop document",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      },
+      {
+        "ext": "png",
+        "name": "PNG image",
+        "description": "PNG image",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      },
+      {
+        "ext": "jpg",
+        "name": "JPEG image",
+        "description": "JPEG image",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      },
+      {
+        "ext": "jpeg",
+        "name": "JPEG image",
+        "description": "JPEG image",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      },
+      {
+        "ext": "webp",
+        "name": "WebP image",
+        "description": "WebP image",
+        "role": "Editor",
+        "icon": "build/icon.ico"
+      }
+    ],
+    "electronLanguages": [
+      "en-US"
+    ]
+  }
+}
