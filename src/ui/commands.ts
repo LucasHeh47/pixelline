@@ -632,7 +632,7 @@ export class Commands {
     modify('select.feather', 'Feather selection…', 'Soften the edge by', 200, (m, n) => m.feathered(n), ['Shift+F6']);
 
     // ---------- Filters and adjustments ----------
-    const filterKeys: Record<string, string[]> = { hueSaturation: ['Ctrl+U'], levels: ['Ctrl+L'], invert: ['Ctrl+I'], grayscale: ['Ctrl+Shift+U'], brightnessContrast: ['Ctrl+Alt+B'] };
+    const filterKeys: Record<string, string[]> = { hueSaturation: ['Ctrl+U'], levels: ['Ctrl+L'], curves: ['Ctrl+M'], autoTone: ['Ctrl+Shift+L'], invert: ['Ctrl+I'], grayscale: ['Ctrl+Shift+U'], brightnessContrast: ['Ctrl+Alt+B'] };
     for (const f of FILTERS) {
       a({
         id: `filter.${f.id}`,
@@ -778,6 +778,9 @@ function cycleTab(app: App, dir: 1 | -1): void {
 function filterIcon(f: FilterDef): IconNode | undefined {
   const icons: Record<string, IconNode> = {
     brightnessContrast: L.SunMedium,
+    curves: L.Spline,
+    autoTone: L.WandSparkles,
+    gradientMap: L.Palette,
     levels: L.ChartNoAxesColumn,
     hueSaturation: L.Droplet,
     colorBalance: L.Scale,

@@ -1624,3 +1624,29 @@ select.input {
   width: 100%;
   height: 26px;
 }
+.curve-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.curve-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.curve-readout {
+  font-variant-numeric: tabular-nums;
+}
+.curve-canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.curve-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

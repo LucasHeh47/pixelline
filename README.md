@@ -34,6 +34,9 @@ Pixelline is a sister app of [Gridline](https://github.com/LucasHeh47/gridline) 
 - **Reduce colours** to any palette, with or without dithering (Floyd–Steinberg, Atkinson, ordered).
 - **Upscale pixel art** with Scale2x/Scale3x (smooth diagonals, no blur), for example to turn a 16× texture into a 32× one.
 - **Replace colour** to recolour a texture in one go, optionally keeping its shading.
+- **Shade and dither inks**: paint shading (each pixel a darker or lighter, hue-shifted shade of itself) or dither patterns with the pencil or brush.
+- **Animated textures** with a live preview, onion skin, frame tools, and the **.png.mcmeta** saved for you.
+- **Batch process a whole folder** (a resource pack): upscale, resize, recolour, filter or convert every texture at once. **Export tiles** splits an atlas into separate PNGs, and **snap to the tile grid** keeps selections and moves on whole tiles.
 - New-image sizes for Minecraft blocks and items (16×–128×), skins, pack icons, GUIs, paintings and animated textures.
 - PNG files are saved exactly, and as small paletted PNGs when they have 256 colours or fewer.
 
@@ -43,7 +46,8 @@ Pixelline is a sister app of [Gridline](https://github.com/LucasHeh47/gridline) 
 - **Selections**: rectangle, ellipse, lasso (free and polygon), magic wand, with add/subtract/intersect, feathering, grow and shrink.
 - **Free transform** (Ctrl+T): scale, rotate and flip a layer or the selected pixels, with hard-pixel or smooth resampling.
 - **Brushes** with hardness, flow, smoothing and pen pressure; eraser; clone stamp; fill bucket; five kinds of gradients (with dithering); shapes; text.
-- **Adjustments**: brightness/contrast, levels, hue/saturation, colour balance, exposure, vibrance, black & white, invert, posterize, threshold.
+- **Adjustments**: curves (with a curve editor), auto tone, levels, brightness/contrast, hue/saturation, colour balance, exposure, vibrance, gradient map, black & white, invert, posterize, threshold.
+- **Retouch brush**: blur, sharpen, lighten, darken or change colour strength just where you paint.
 - **Filters** with a live preview: blurs, sharpen, noise, despeckle, emboss, find edges, vignette, pixelate, outline, colour to transparency, offset and "make seamless".
 - Image size (nearest, bilinear, bicubic and averaging), canvas size with an anchor, crop, trim, rotate and flip.
 - **Undo history** that only stores what changed, so it stays small even on big photos.
@@ -53,7 +57,9 @@ Pixelline is a sister app of [Gridline](https://github.com/LucasHeh47/gridline) 
 - Several images in tabs, drag and drop, copy and paste with other apps.
 - **Export as** PNG, JPEG or WebP at any scale, showing the file size before you save.
 - Every command is searchable with **Ctrl+K**, and has the keyboard shortcuts you know from other editors (B, E, V, M, Ctrl+T, Ctrl+J…).
-- Dark and light themes and accent colours. 41 settings.
+- **Safety copies** of unsaved work, offered back after a crash.
+- Part of a family: the app switcher opens **Gridline** (spreadsheets) and **Baseline** (a home for your apps and files).
+- Dark and light themes and accent colours.
 
 ## Learn more
 

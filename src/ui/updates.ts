@@ -12,7 +12,9 @@ const SEEN_KEY = 'pixelline.lastVersion';
 /** Release notes for one version from CHANGELOG.md, as plain text lines. */
 export function notesFor(version: string): string[] {
   const parts = changelog.split(/^## /m);
-  const sec = parts.find((p) => p.startsWith(version + '\n') || p.startsWith(version + '\r'));
+  // A development build (0.2.0-beta.4) shows the notes of the version it previews
+  const section = (v: string) => parts.find((p) => p.startsWith(v + '\n') || p.startsWith(v + '\r'));
+  const sec = section(version) ?? section(version.split('-')[0]);
   if (!sec) return [];
   return sec
     .split(/\r?\n/)
@@ -42,15 +44,8 @@ export class Updates {
     } catch {
       // storage unavailable
     }
-    // People updating from 1.0.0 have no record of the last version, but do have saved preferences
-    const usedBefore = (() => {
-      try {
-        return !!localStorage.getItem('pixelline.prefs');
-      } catch {
-        return false;
-      }
-    })();
-    const updated = last ? last !== current : usedBefore;
+    // Only after an update (a first install has nothing new to show)
+    const updated = !!last && last !== current;
     if (updated && this.app.settings.bool('updates.showNotes') && notesFor(current).length) setTimeout(() => this.showWhatsNew(), 600);
     if (isDesktop && this.app.settings.bool('updates.onStartup')) setTimeout(() => void this.check(true), 4000);
   }

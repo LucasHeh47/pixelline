@@ -31,7 +31,7 @@ import { Toolbar } from './toolbar';
 import { BucketTool, GradientTool, ShapeTool } from './tools/fill';
 import { CropTool, EyedropperTool, HandTool, TextTool, ZoomTool } from './tools/misc';
 import { MoveTool, TransformTool } from './tools/move';
-import { BrushTool, CloneTool, EraserTool, PencilTool } from './tools/paint';
+import { BrushTool, CloneTool, EraserTool, PencilTool, RetouchTool } from './tools/paint';
 import { LassoTool, MarqueeTool, WandTool } from './tools/select';
 import { ToolManager } from './tools/tool';
 import { Updates } from './updates';
@@ -185,6 +185,7 @@ export class App {
         new BrushTool(this),
         new EraserTool(this),
         new CloneTool(this),
+        new RetouchTool(this),
         new BucketTool(this),
         new GradientTool(this),
         new ShapeTool(this),

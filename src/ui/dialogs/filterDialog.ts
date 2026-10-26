@@ -6,7 +6,9 @@ import { applyFilter, previewFilter } from '../../core/ops';
 import type { App } from '../app';
 import { slider, toggle } from '../controls';
 import { h } from '../dom';
+import { intersect, isEmpty } from '../../core/geom';
 import { dialog, toast } from '../widgets';
+import { curveEditor } from './curveEditor';
 import { nextFrame, select } from './common';
 
 /** Images this big preview only after the sliders stop moving. */
@@ -99,7 +101,8 @@ export async function openFilter(app: App, id: string): Promise<void> {
   const preview = livePreview(app, f, params);
   const controls = h('div', { class: 'filter-controls' });
   const build = () => {
-    controls.replaceChildren(...f.params.map((d) => control(d, params, () => preview.update())));
+    const pixels = f.params.some((d) => d.type === 'curve') ? sample(app) : null;
+    controls.replaceChildren(...f.params.map((d) => control(d, params, () => preview.update(), pixels)));
   };
   build();
   const reset = h('button', { class: 'btn text', onclick: () => {
@@ -127,8 +130,13 @@ export async function openFilter(app: App, id: string): Promise<void> {
 }
 
 /** A control for one filter setting. */
-function control(d: FilterDef['params'][number], params: Params, changed: () => void): HTMLElement {
+function control(d: FilterDef['params'][number], params: Params, changed: () => void, pixels: Uint8ClampedArray | null = null): HTMLElement {
   switch (d.type) {
+    case 'curve':
+      return curveEditor(String(params[d.key]), pixels, (text) => {
+        params[d.key] = text;
+        changed();
+      });
     case 'range':
       return slider({
         label: d.label,
@@ -170,4 +178,21 @@ function control(d: FilterDef['params'][number], params: Params, changed: () => 
       return h('label', { class: 'ctl' }, h('span', { class: 'ctl-label' }, d.label), input);
     }
   }
+}
+
+/** The pixels a filter will change (for histograms), at most about a million. */
+function sample(app: App): Uint8ClampedArray | null {
+  const doc = app.doc;
+  if (!doc) return null;
+  const l = doc.active;
+  const area = intersect(doc.selection?.bounds ?? l.bounds, doc.bounds);
+  if (isEmpty(area)) return null;
+  const step = Math.max(1, Math.ceil(Math.sqrt((area.w * area.h) / 1_000_000)));
+  if (step === 1) return l.read(area);
+  const out: number[] = [];
+  for (let y = area.y; y < area.y + area.h; y += step) {
+    const row = l.read({ x: area.x, y, w: area.w, h: 1 });
+    for (let x = 0; x < area.w; x += step) out.push(row[x * 4], row[x * 4 + 1], row[x * 4 + 2], row[x * 4 + 3]);
+  }
+  return new Uint8ClampedArray(out);
 }

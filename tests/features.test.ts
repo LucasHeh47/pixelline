@@ -153,3 +153,28 @@ describe('batch processing', () => {
     expect([doc.width, doc.height]).toEqual([5, 3]);
   });
 });
+
+describe('curves and auto tone', () => {
+  it('makes a smooth table through the points that never overshoots', async () => {
+    const { curveTable, curvesFromText, curvesToText, STRAIGHT } = await import('../src/core/filters');
+    const t = curveTable([
+      [0, 0],
+      [64, 40],
+      [192, 220],
+      [255, 255],
+    ]);
+    expect([t[0], t[64], t[192], t[255]]).toEqual([0, 40, 220, 255]);
+    for (let v = 1; v < 256; v++) expect(t[v]).toBeGreaterThanOrEqual(t[v - 1]);
+    expect(Array.from(curveTable(STRAIGHT)).every((v, i) => v === i)).toBe(true);
+    const text = curvesToText({ rgb: [[0, 0], [128, 160], [255, 255]], r: STRAIGHT, g: STRAIGHT, b: STRAIGHT });
+    expect(curvesFromText(text).rgb).toEqual([[0, 0], [128, 160], [255, 255]]);
+  });
+
+  it('auto tone stretches a dull image to full contrast', async () => {
+    const { FILTER_BY_ID, defaults } = await import('../src/core/filters');
+    const f = FILTER_BY_ID.get('autoTone')!;
+    const src = new Uint8ClampedArray([80, 80, 80, 255, 120, 120, 120, 255, 160, 160, 160, 255]);
+    const out = f.run(src, 3, 1, { ...defaults(f), clip: 0 }, { fg: { r: 0, g: 0, b: 0, a: 255 }, bg: { r: 255, g: 255, b: 255, a: 255 } });
+    expect([out[0], out[4], out[8]]).toEqual([0, 128, 255]);
+  });
+});

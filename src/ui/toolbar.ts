@@ -8,7 +8,7 @@ import { h, icon } from './dom';
 import { tooltip } from './widgets';
 
 /** Tools in the order shown, with separators between groups. */
-const LAYOUT = ['move', 'marquee', 'lasso', 'wand', 'crop', '-', 'pencil', 'brush', 'eraser', 'clone', '-', 'bucket', 'gradient', 'shape', 'text', '-', 'eyedropper', 'hand', 'zoom'];
+const LAYOUT = ['move', 'marquee', 'lasso', 'wand', 'crop', '-', 'pencil', 'brush', 'eraser', 'clone', 'retouch', '-', 'bucket', 'gradient', 'shape', 'text', '-', 'eyedropper', 'hand', 'zoom'];
 
 export class Toolbar {
   readonly el: HTMLElement;

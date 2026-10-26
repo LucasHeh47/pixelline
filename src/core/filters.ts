@@ -1,8 +1,120 @@
 // Adjustments and filters. Each one is described by its settings (so the app can build its
 // dialog and live preview) and a function from pixels to pixels (RGBA, straight alpha).
-import { hslToRgb, luma, rgbToHsl, type RGBA } from './color';
+import { hslToRgb, luma, parseHex, rgbToHsl, type RGBA } from './color';
 
-export type ParamType = 'range' | 'bool' | 'select' | 'color';
+// ---------- curves ----------
+
+/** Curve points (input, output), 0–255, sorted by input. */
+export type CurvePoints = [number, number][];
+
+/** The four curves (all channels, red, green, blue), as stored in a filter setting. */
+export interface Curves {
+  rgb: CurvePoints;
+  r: CurvePoints;
+  g: CurvePoints;
+  b: CurvePoints;
+}
+
+export const STRAIGHT: CurvePoints = [
+  [0, 0],
+  [255, 255],
+];
+
+export function curvesFromText(text: string): Curves {
+  const out: Curves = { rgb: STRAIGHT, r: STRAIGHT, g: STRAIGHT, b: STRAIGHT };
+  for (const part of String(text).split('|')) {
+    const [ch, pts] = part.split(':');
+    if (!(ch in out) || !pts) continue;
+    const list = pts
+      .split(';')
+      .map((p) => p.split(',').map(Number) as [number, number])
+      .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+      .map(([x, y]) => [Math.max(0, Math.min(255, x)), Math.max(0, Math.min(255, y))] as [number, number])
+      .sort((a, b) => a[0] - b[0]);
+    if (list.length >= 2) out[ch as keyof Curves] = list;
+  }
+  return out;
+}
+
+export function curvesToText(c: Curves): string {
+  return (Object.keys(c) as (keyof Curves)[]).map((k) => `${k}:${c[k].map(([x, y]) => `${Math.round(x)},${Math.round(y)}`).join(';')}`).join('|');
+}
+
+/** A smooth curve through the points that never overshoots (monotone cubic), as a 256-entry table. */
+export function curveTable(points: CurvePoints): Uint8ClampedArray {
+  const pts = points.length >= 2 ? points : STRAIGHT;
+  const n = pts.length;
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  const d: number[] = [];
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / Math.max(1e-6, xs[i + 1] - xs[i]));
+  // Tangents (Fritsch–Carlson)
+  const m: number[] = [d[0]];
+  for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+  m.push(d[n - 2]);
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const t = 3 / Math.sqrt(s);
+      m[i] = t * a * d[i];
+      m[i + 1] = t * b * d[i];
+    }
+  }
+  const out = new Uint8ClampedArray(256);
+  let seg = 0;
+  for (let v = 0; v < 256; v++) {
+    if (v <= xs[0]) {
+      out[v] = ys[0];
+      continue;
+    }
+    if (v >= xs[n - 1]) {
+      out[v] = ys[n - 1];
+      continue;
+    }
+    while (seg < n - 2 && v > xs[seg + 1]) seg++;
+    const h = xs[seg + 1] - xs[seg];
+    const t = (v - xs[seg]) / h;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    out[v] = (2 * t3 - 3 * t2 + 1) * ys[seg] + (t3 - 2 * t2 + t) * h * m[seg] + (-2 * t3 + 3 * t2) * ys[seg + 1] + (t3 - t2) * h * m[seg + 1];
+  }
+  return out;
+}
+
+/** Brightness histogram (256 bins) of the opaque pixels, for the Curves editor and Auto tone. */
+export function histogram(src: Uint8ClampedArray, channel: 'rgb' | 'r' | 'g' | 'b' = 'rgb'): Uint32Array {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < src.length; i += 4) {
+    if (src[i + 3] < 8) continue;
+    const v = channel === 'r' ? src[i] : channel === 'g' ? src[i + 1] : channel === 'b' ? src[i + 2] : Math.round(luma(src[i], src[i + 1], src[i + 2]));
+    hist[v]++;
+  }
+  return hist;
+}
+
+/** The darkest and lightest levels, ignoring a few stray pixels at each end. */
+function levelsOf(hist: Uint32Array, clip: number): [number, number] {
+  let total = 0;
+  for (const c of hist) total += c;
+  const cut = (total * clip) / 100;
+  let lo = 0;
+  let acc = 0;
+  while (lo < 255 && acc + hist[lo] <= cut) acc += hist[lo++];
+  let hi = 255;
+  acc = 0;
+  while (hi > 0 && acc + hist[hi] <= cut) acc += hist[hi--];
+  return hi > lo ? [lo, hi] : [0, 255];
+}
+
+/** 'curve': tone curves for Curves, edited with a curve editor (see curveFromText). */
+export type ParamType = 'range' | 'bool' | 'select' | 'color' | 'curve';
 
 export interface ParamDef {
   key: string;
@@ -451,6 +563,75 @@ export const FILTERS: FilterDef[] = [
       return perPixel(src, (r, g, bl) => {
         const y = luma(r, g, bl);
         return [y + 40 * t, y + 15 * t, y - 25 * t];
+      });
+    },
+  },
+  {
+    id: 'curves',
+    name: 'Curves',
+    group: 'Adjustments',
+    description: 'Drag the curve to change tones: up brightens, down darkens, an S shape adds contrast. Pick a channel to change one colour.',
+    params: [{ key: 'curves', label: 'Curves', type: 'curve', default: curvesToText({ rgb: STRAIGHT, r: STRAIGHT, g: STRAIGHT, b: STRAIGHT }) }],
+    run: (src, _w, _h, p) => {
+      const c = curvesFromText(String(p.curves));
+      const all = curveTable(c.rgb);
+      const r = curveTable(c.r);
+      const g = curveTable(c.g);
+      const b = curveTable(c.b);
+      const chain = (t: Uint8ClampedArray) => table((v) => all[t[v]]);
+      return lut(src, chain(r), chain(g), chain(b));
+    },
+  },
+  {
+    id: 'autoTone',
+    name: 'Auto tone',
+    group: 'Adjustments',
+    description: 'Stretches the image so its darkest parts are black and its lightest white. "Fix colour casts" also balances the colours (good for yellowish or bluish photos).',
+    params: [
+      {
+        key: 'mode',
+        label: 'Mode',
+        type: 'select',
+        default: 'contrast',
+        options: [
+          ['contrast', 'Contrast only (keeps colours)'],
+          ['color', 'Fix colour casts too'],
+        ],
+      },
+      { key: 'clip', label: 'Ignore extremes', type: 'range', min: 0, max: 5, step: 0.1, unit: '%', default: 0.5 },
+    ],
+    run: (src, _w, _h, p) => {
+      const clip = n(p, 'clip');
+      const stretch = ([lo, hi]: [number, number]) => table((v) => ((v - lo) / (hi - lo)) * 255);
+      if (p.mode === 'color') return lut(src, stretch(levelsOf(histogram(src, 'r'), clip)), stretch(levelsOf(histogram(src, 'g'), clip)), stretch(levelsOf(histogram(src, 'b'), clip)));
+      return lut(src, stretch(levelsOf(histogram(src), clip)));
+    },
+  },
+  {
+    id: 'gradientMap',
+    name: 'Gradient map',
+    group: 'Adjustments',
+    description: 'Recolours the image by brightness: shadows get one colour, highlights another. Great for moody photos, or for recolouring a texture to a new material.',
+    params: [
+      { key: 'dark', label: 'Shadows', type: 'color', default: '#1b1035' },
+      { key: 'mid', label: 'Midtones', type: 'color', default: '#c2477a' },
+      { key: 'light', label: 'Highlights', type: 'color', default: '#ffe9a8' },
+      { key: 'useMid', label: 'Use a midtone colour', type: 'bool', default: true },
+      { key: 'amount', label: 'Strength', type: 'range', min: 0, max: 100, unit: '%', default: 100 },
+    ],
+    run: (src, _w, _h, p) => {
+      const c0 = parseHex(String(p.dark)) ?? { r: 0, g: 0, b: 0, a: 255 };
+      const c1 = parseHex(String(p.mid)) ?? { r: 128, g: 128, b: 128, a: 255 };
+      const c2 = parseHex(String(p.light)) ?? { r: 255, g: 255, b: 255, a: 255 };
+      const mid = b(p, 'useMid');
+      const k = n(p, 'amount') / 100;
+      const at = (t: number): [number, number, number] => {
+        const [a, z, u] = mid ? (t < 0.5 ? [c0, c1, t * 2] : [c1, c2, (t - 0.5) * 2]) : [c0, c2, t];
+        return [a.r + (z.r - a.r) * u, a.g + (z.g - a.g) * u, a.b + (z.b - a.b) * u];
+      };
+      return perPixel(src, (r, g, bl) => {
+        const [mr, mg, mb] = at(luma(r, g, bl) / 255);
+        return [r + (mr - r) * k, g + (mg - g) * k, bl + (mb - bl) * k];
       });
     },
   },

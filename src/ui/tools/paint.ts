@@ -488,3 +488,130 @@ export class CloneTool extends PaintTool {
     ].filter((x): x is HTMLElement => !!x);
   }
 }
+
+type RetouchMode = 'blur' | 'sharpen' | 'lighten' | 'darken' | 'saturate' | 'desaturate';
+
+const RETOUCH_MODES: [RetouchMode, string][] = [
+  ['blur', 'Blur'],
+  ['sharpen', 'Sharpen'],
+  ['lighten', 'Lighten (dodge)'],
+  ['darken', 'Darken (burn)'],
+  ['saturate', 'More colour'],
+  ['desaturate', 'Less colour'],
+];
+
+/**
+ * Retouch brush: blurs, sharpens, lightens, darkens or changes the colour strength only where you
+ * paint (softening skin, bringing out a detail, brightening eyes, fixing a blotchy texture).
+ * Each stroke works from the pixels as they were before it, so going over a spot twice in one
+ * stroke doesn't pile up.
+ */
+export class RetouchTool extends PaintTool {
+  id = 'retouch';
+  name = 'Retouch brush';
+  icon = L.Droplet;
+  key = 'R';
+  hint = 'Paint to blur, sharpen, lighten, darken or change colour strength just there. Each stroke adds one step; paint again for more.';
+  private snap: { data: Uint8ClampedArray; x: number; y: number; w: number; h: number } | null = null;
+
+  private o() {
+    return this.opts({ size: 30, hardness: 30, strength: 50, mode: 'blur' as RetouchMode, pixel: false });
+  }
+
+  protected brush(): BrushSettings {
+    const o = this.o();
+    if (o.pixel) return { size: o.size, hardness: 1, opacity: 1, flow: 1, spacing: 0.1, shape: 'square', antialias: false };
+    return { size: o.size, hardness: o.hardness / 100, opacity: 1, flow: 1, spacing: 0.1, shape: 'round', antialias: true, pressureSize: true };
+  }
+
+  down(p: PointerInfo): void {
+    const doc = this.app.doc;
+    if (!doc || p.alt) return super.down(p);
+    // The layer as it is now, for the effects that look at neighbouring pixels
+    const l = doc.active;
+    const area = { x: 0, y: 0, w: doc.width, h: doc.height };
+    this.snap = { data: l.read(area), ...area };
+    super.down(p);
+  }
+
+  up(p: PointerInfo): void {
+    super.up(p);
+    this.snap = null;
+  }
+
+  protected colorAt(p: PointerInfo): StrokeOptions['colorAt'] {
+    const o = this.o();
+    const k = o.strength / 100;
+    const snap = this.snap;
+    // Right-click does the opposite
+    const flip: Record<RetouchMode, RetouchMode> = { blur: 'sharpen', sharpen: 'blur', lighten: 'darken', darken: 'lighten', saturate: 'desaturate', desaturate: 'saturate' };
+    const mode = p.button === 2 ? flip[o.mode] : o.mode;
+    const radius = 1 + Math.round(k * 3);
+    /** Average of the neighbourhood (on premultiplied colour, so transparent edges don't darken). */
+    const blurAt = (x: number, y: number): RGBA => {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      let n = 0;
+      if (!snap) return { r: 0, g: 0, b: 0, a: 0 };
+      for (let dy = -radius; dy <= radius; dy++)
+        for (let dx = -radius; dx <= radius; dx++) {
+          const sx = x + dx;
+          const sy = y + dy;
+          if (sx < 0 || sy < 0 || sx >= snap.w || sy >= snap.h) continue;
+          const i = (sy * snap.w + sx) * 4;
+          const al = snap.data[i + 3];
+          r += snap.data[i] * al;
+          g += snap.data[i + 1] * al;
+          b += snap.data[i + 2] * al;
+          a += al;
+          n++;
+        }
+      return a ? { r: r / a, g: g / a, b: b / a, a: a / n } : { r: 0, g: 0, b: 0, a: 0 };
+    };
+    const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+    return (x, y, under) => {
+      if (!under.a && mode !== 'blur') return null;
+      switch (mode) {
+        case 'blur': {
+          const c = blurAt(x, y);
+          return { r: clamp(c.r), g: clamp(c.g), b: clamp(c.b), a: clamp(c.a) };
+        }
+        case 'sharpen': {
+          const c = blurAt(x, y);
+          const s = 0.6 + k * 1.6;
+          return { r: clamp(under.r + (under.r - c.r) * s), g: clamp(under.g + (under.g - c.g) * s), b: clamp(under.b + (under.b - c.b) * s), a: under.a };
+        }
+        case 'lighten': {
+          const s = 0.08 + k * 0.3;
+          return { r: clamp(under.r + (255 - under.r) * s), g: clamp(under.g + (255 - under.g) * s), b: clamp(under.b + (255 - under.b) * s), a: under.a };
+        }
+        case 'darken': {
+          const s = 1 - (0.08 + k * 0.3);
+          return { r: clamp(under.r * s), g: clamp(under.g * s), b: clamp(under.b * s), a: under.a };
+        }
+        default: {
+          const y0 = 0.299 * under.r + 0.587 * under.g + 0.114 * under.b;
+          const s = mode === 'saturate' ? 1 + 0.15 + k * 0.6 : 1 - (0.15 + k * 0.6);
+          return { r: clamp(y0 + (under.r - y0) * s), g: clamp(y0 + (under.g - y0) * s), b: clamp(y0 + (under.b - y0) * s), a: under.a };
+        }
+      }
+    };
+  }
+
+  options(): HTMLElement[] {
+    const o = this.o();
+    return [
+      dropdown<RetouchMode>('Effect', RETOUCH_MODES, o.mode, (v) => this.setOpt({ mode: v }), 'What painting does. The right button does the opposite (blur ↔ sharpen, lighten ↔ darken).'),
+      slider({ label: 'Size', min: 1, max: 1000, value: o.size, unit: 'px', log: true, width: 110, onChange: (v) => this.setOpt({ size: v }) }),
+      slider({ label: 'Strength', min: 1, max: 100, value: o.strength, unit: '%', width: 90, onChange: (v) => this.setOpt({ strength: v }) }),
+      o.pixel ? null : slider({ label: 'Hardness', min: 0, max: 100, value: o.hardness, unit: '%', width: 80, onChange: (v) => this.setOpt({ hardness: v }) }),
+      sep(),
+      toggle('Hard pixels', o.pixel, (v) => {
+        this.setOpt({ pixel: v });
+        this.app.tools.changed();
+      }, 'A square, hard-edged brush for pixel art'),
+    ].filter((x): x is HTMLElement => !!x);
+  }
+}
