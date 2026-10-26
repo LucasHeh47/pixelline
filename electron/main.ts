@@ -371,7 +371,7 @@ ipcMain.handle('recovery:remove', async (_e, id: string) => {
 // The other apps of the suite
 ipcMain.handle('suite:apps', () => suiteApps());
 ipcMain.handle('suite:launch', async (_e, id: SuiteAppId, args: unknown) => {
-  if (!['baseline', 'gridline', 'pixelline'].includes(id)) return false;
+  if (!['baseline', 'gridline', 'pixelline', 'frameline'].includes(id)) return false;
   return launchSuiteApp(id, safeLaunchArgs(args));
 });
 

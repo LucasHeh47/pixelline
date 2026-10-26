@@ -22,7 +22,7 @@
 - **Right-click menu on the canvas** for the selection and move tools: copy, paste, crop, transform and more.
 - **Navigator previews:** the image at actual size, or tiled 3×3 to check seams.
 - **Safety copies:** unsaved images are copied every couple of minutes. If Pixelline closes unexpectedly, the start page offers to recover them.
-- The start page has tips, and an app switcher (top left) opens Gridline and Baseline, the new home app for the suite. Baseline can also start a new image in Pixelline.
+- The start page has tips, and an app switcher (top left) opens Gridline, Frameline (the new video editor) and Baseline, the new home app for the suite. Baseline can also start a new image in Pixelline.
 
 ## 0.1.0
 

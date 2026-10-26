@@ -88,7 +88,7 @@ export interface RecoveryApi {
   remove(id: string): Promise<void>;
 }
 
-export type SuiteAppId = 'baseline' | 'gridline' | 'pixelline';
+export type SuiteAppId = 'baseline' | 'gridline' | 'pixelline' | 'frameline';
 
 export interface SuiteApp {
   id: SuiteAppId;
