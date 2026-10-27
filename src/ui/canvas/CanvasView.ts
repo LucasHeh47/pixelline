@@ -68,6 +68,10 @@ export class CanvasView {
   private flat: OffscreenCanvas = new OffscreenCanvas(1, 1);
   private flatCtx = this.flat.getContext('2d')!;
   private flatDirty: Rect | null = null;
+  /** Counts changes to the composited image (so the cached view knows when it's out of date). */
+  private flatVersion = 0;
+  /** The image as last drawn on screen, reused while only the cursor moves (shrinking a big image is slow). */
+  private shown: { canvas: OffscreenCanvas; key: string } | null = null;
   private layers = new Map<Layer, LayerCanvas>();
   private pattern: CanvasPattern | null = null;
   private workspace = '';
@@ -331,6 +335,7 @@ export class CanvasView {
     const r = intersect(this.flatDirty, d.bounds);
     this.flatDirty = null;
     if (isEmpty(r)) return;
+    this.flatVersion++;
     const c = this.flatCtx;
     c.save();
     c.beginPath();
@@ -408,6 +413,13 @@ export class CanvasView {
     const H = d.height * zoom;
     const tiled = this.app.prefs.tileMode;
     const smooth = zoom < 1 && this.app.settings.bool('canvas.smoothZoomOut');
+    const key = [zoom, panX, panY, this.canvas.width, this.canvas.height, tiled, smooth, this.flatVersion, this.workspace, this.app.settings.str('canvas.checker'), this.patternKey, this.app.isDark].join('|');
+    if (!this.pointerDown && this.shown?.key === key) {
+      ctx.drawImage(this.shown.canvas, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.drawOverlays(d, W, H);
+      return;
+    }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Tile preview: the image repeated around itself, dimmed, to check a seamless texture
@@ -436,6 +448,20 @@ export class CanvasView {
         ctx.fillRect(x, y, W, H);
       }
     }
+    // Kept for redrawing the cursor without shrinking the image again (not mid-stroke: it changes every frame)
+    if (!this.pointerDown) {
+      if (this.shown?.canvas.width !== this.canvas.width || this.shown.canvas.height !== this.canvas.height) this.shown = { canvas: new OffscreenCanvas(this.canvas.width, this.canvas.height), key: '' };
+      const sc = this.shown.canvas.getContext('2d')!;
+      sc.drawImage(this.canvas, 0, 0);
+      this.shown.key = key;
+    } else if (this.shown) this.shown.key = '';
+    this.drawOverlays(d, W, H);
+  }
+
+  /** Everything drawn over the image: border, frames, grids, selection, the tool's marks and the brush. */
+  private drawOverlays(d: ImageDoc, W: number, H: number): void {
+    const ctx = this.ctx;
+    const { panX, panY } = this.view;
     // Image border
     ctx.strokeStyle = this.app.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 1;

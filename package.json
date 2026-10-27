@@ -1,7 +1,7 @@
 {
   "name": "pixelline",
   "productName": "Pixelline",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A fast image editor for pixel art, game textures (Minecraft resource packs) and photos, with layers, selections, filters and Photoshop (.psd) files.",
   "main": "dist-electron/main.js",
   "private": true,

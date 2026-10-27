@@ -161,6 +161,19 @@ describe('painting', () => {
     expect(px(layer, 12, 4)[3]).toBe(0);
   });
 
+  it('big hard brushes skip covered pixels without leaving holes', () => {
+    // flow 0.999 works every pixel of every dab out in full; flow 1 only visits the new ones
+    const paint = (flow: number, shape: 'round' | 'square') => {
+      const { doc: d, layer } = doc(120, 90);
+      const e = d.begin('paint');
+      const s = new Stroke(d, layer, e, { mode: 'paint', color: RED, brush: { ...PENCIL, size: 23, shape, flow }, wrap: true, mirrorX: 60 });
+      [[5, 80], [40, 10], [41, 60], [118, 85], [70, 2]].forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+      e.commit();
+      return layer.read(d.bounds);
+    };
+    for (const shape of ['round', 'square'] as const) expect(paint(1, shape)).toEqual(paint(0.999, shape));
+  });
+
   it('soft brushes fade out and respect the selection', () => {
     const { doc: d, layer } = doc(40, 40);
     d.selection = Mask.rect(40, 40, { x: 0, y: 0, w: 20, h: 40 });
