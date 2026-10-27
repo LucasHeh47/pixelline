@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- **Giant brushes are smooth.** A 256 px pencil took about 170 ms per mouse move on a 4000×3000 image (a few frames a second), and a 1000 px brush about 33 ms. Strokes now only work out the pixels that changed, once per move: about 6 ms and 8–13 ms. The result is the same, pixel for pixel. The eraser, clone stamp and retouch brush get faster too.
+- **Hovering a brush over a big image** no longer redraws the whole image on every mouse move.
+- **Checking for updates** no longer says something went wrong when there's no new regular release yet.
+
 ## 0.2.0
 
 - **Shading and dithering inks.** The pencil and brush have an **Ink** setting:
